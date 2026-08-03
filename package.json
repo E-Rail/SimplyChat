@@ -1,7 +1,7 @@
 {
-  "name": "simplychat",
-  "version": "26.1.0",
-  "description": "A simple, encrypted chat application",
+  "name": "basefill-core",
+  "version": "1.0.0",
+  "description": "A user-facing, forkable data workspace core for developers",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -12,15 +12,16 @@
     "build:all": "electron-builder --mac --win"
   },
   "keywords": [
-    "chat",
-    "messaging",
-    "encrypted"
+    "data-workspace",
+    "developer-tool",
+    "starter-app",
+    "electron"
   ],
-  "author": "SimplyChat Team",
+  "author": "Basefill contributors",
   "license": "MIT",
   "build": {
-    "appId": "com.simplychat.app",
-    "productName": "SimplyChat",
+    "appId": "com.basefill.core",
+    "productName": "Basefill",
     "icon": "icon.png",
     "directories": {
       "output": "dist"
@@ -34,7 +35,7 @@
       "node_modules/**/*"
     ],
     "mac": {
-      "category": "public.app-category.social-networking",
+      "category": "public.app-category.productivity",
       "identity": null,
       "gatekeeperAssess": false,
       "target": [

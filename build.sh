@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Build script for SimplyChat Electron App
+# Build script for Basefill Electron App
 
-echo "Building SimplyChat Application..."
+echo "Building Basefill Application..."
 
 # Clean previous builds
 echo "Cleaning previous builds..."

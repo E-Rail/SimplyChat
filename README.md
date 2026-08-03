@@ -1,88 +1,113 @@
-# Basefill
+# SimplyChat
 
-Basefill is a user-facing data workspace that developers can fork into the core of their own product. Users can create bases, collections, fields, and records, then import or export seed data without needing a backend on day one.
+A simple, encrypted chat application built with Electron and Supabase.
 
-The default app is deliberately useful in demo mode: data is stored locally in the renderer. The integration surface lives in [`src/api.js`](src/api.js), so a fork can add its own authentication, API, database, analytics, or product-specific side effects without rewriting the UI.
+## Features
 
-## What ships in the core
+- **End-to-End Encryption** — Messages encrypted using RSA-OAEP + AES-GCM
+- **Email Verification** — Powered by Supabase Auth
+- **OAuth Login** — Google and GitHub sign-in support
+- **Real-Time Messaging** — Instant message delivery with 5-second polling fallback
+- **Contact Management** — Add and manage contacts
+- **Cross-Platform** — macOS (Universal) and Windows (x64)
 
-- User-facing bases, collections, schema, and record management
-- Local-first persistence with a ready-to-replace workspace adapter
-- JSON and CSV import, JSON copy, and JSON export
-- Search, selection, editing, deletion, and required field validation
-- A small, dependency-free API contract for backend and auth integrations
-- Electron packaging for macOS and Windows
+## Download
 
-## Run locally
+Download the latest release from the [Releases page](https://github.com/E-Rail/SimplyChat-JS-Edition/releases/latest):
+
+- **macOS** — `SimplyChat-26.1.0-universal.dmg` (Intel & Apple Silicon)
+- **Windows** — `SimplyChat Setup 26.1.0.exe` (x64)
+
+> **macOS users:** If you get "SimplyChat is damaged", run this in Terminal after installing:
+> ```
+> xattr -cr /Applications/SimplyChat.app
+> ```
+
+## Tech Stack
+
+- **Frontend**: HTML, CSS, JavaScript
+- **Backend**: Supabase (PostgreSQL, Auth, Realtime)
+- **Desktop**: Electron
+- **Encryption**: Web Crypto API (RSA-OAEP + AES-GCM)
+
+## Self-Deployment
+
+### Prerequisites
+
+- Node.js (v16 or higher)
+- npm
+- A [Supabase](https://supabase.com) project
+
+### 1. Clone and Install
 
 ```bash
+git clone https://github.com/E-Rail/SimplyChat-JS-Edition.git
+cd SimplyChat-JS-Edition
 npm install
+```
+
+### 2. Set Up Database
+
+1. Go to your Supabase project → **SQL Editor**
+2. Run the contents of `src/supabase_setup.sql`
+
+### 3. Configure Supabase
+
+1. Go to **Authentication → Providers** and enable **Email**
+2. (Optional) Set up **Google** and **GitHub** OAuth providers
+3. Go to **Authentication → URL Configuration** and add `simplychat://auth-callback` to Redirect URLs
+
+### 4. Update Config
+
+Edit `src/config.js` with your Supabase credentials:
+
+```js
+const SUPABASE_URL = 'https://your-project.supabase.co';
+const SUPABASE_ANON_KEY = 'your-anon-key';
+```
+
+### 5. Run
+
+```bash
 npm start
 ```
 
-The app opens in demo mode. Create a base, add a collection, or import a JSON/CSV payload to try the core workflow.
-
-## Connect a backend
-
-Open [`src/api.js`](src/api.js). It exposes `window.BasefillAPI` with a small set of hooks:
-
-```js
-window.BasefillAPI.hooks.loadWorkspace = async () => {
-  const response = await fetch('/api/workspace', { credentials: 'include' });
-  return response.json();
-};
-
-window.BasefillAPI.hooks.saveWorkspace = async (workspace) => {
-  await fetch('/api/workspace', {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(workspace)
-  });
-};
-
-window.BasefillAPI.hooks.getCurrentUser = async () => {
-  const response = await fetch('/api/me', { credentials: 'include' });
-  return response.json();
-};
-```
-
-Available lifecycle hooks include:
-
-- `loadWorkspace`, `saveWorkspace`
-- `getCurrentUser`, `signIn`, `signOut`
-- `onBaseCreated`, `onBaseDeleted`
-- `onCollectionCreated`, `onCollectionDeleted`
-- `onFieldCreated`, `onFieldDeleted`
-- `onRecordCreated`, `onRecordUpdated`, `onRecordDeleted`
-- `onRecordsImported`, `onRecordsExported`
-
-For a configured REST backend, set `window.BASEFILL_CONFIG.apiBaseUrl` and use `BasefillAPI.request(path, options)` as the shared request helper. Keep secrets out of renderer code; use the Electron preload bridge or a secure session for production credentials.
-
-## Build
+### 6. Build
 
 ```bash
-# macOS universal build
+# Mac (Universal)
 npm run build:mac
 
-# Windows x64 build
+# Windows (x64)
 npm run build:win
 ```
 
-Build output is written to `dist/`.
+Output saved to `dist/`.
 
-## Project structure
+## Project Structure
 
-```text
-├── main.js          # Electron main process
-├── preload.js       # Safe native bridge for fork-specific capabilities
+```
+SimplyChat-JS-Edition/
+├── main.js              # Electron main process
+├── preload.js           # Preload script for renderer
+├── package.json         # Project configuration
+├── icon.png             # Application icon
+├── build.sh             # Build script
 ├── src/
-│   ├── index.html   # User-facing app shell and modal surfaces
-│   ├── script.js    # Local-first state, rendering, and interaction logic
-│   ├── style.css    # Product UI styles
-│   └── api.js       # Backend, auth, and lifecycle integration contract
-├── icon.png         # App icon asset
-└── package.json
+│   ├── index.html       # Main chat interface
+│   ├── login.html       # Login page
+│   ├── register.html    # Registration page
+│   ├── settings.html    # User settings page
+│   ├── auth-callback.html # OAuth callback handler
+│   ├── config.js        # App configuration
+│   ├── auth.js          # Authentication logic
+│   ├── cloudService.js  # Supabase service layer
+│   ├── crypto.js        # E2E encryption utilities
+│   ├── script.js        # Main application logic
+│   ├── style.css        # Application styles
+│   ├── debug.js         # Debug utilities
+│   └── supabase_setup.sql # Database schema
+└── .gitignore
 ```
 
 ## License

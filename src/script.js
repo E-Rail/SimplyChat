@@ -1,1072 +1,618 @@
-const STORAGE_KEY = 'basefill-workspace-v1';
+// Import authentication functions
+// Current user information
+let currentUser = null;
+let messages = [];
+let contacts = [];
+let currentContact = null;
+let messageSubscription = null;
 
-let state = null;
-let entityMode = 'base';
-let editingRecordId = null;
-let selectedRecordIds = new Set();
+// DOM Elements
+const messagesDiv = document.getElementById("messages");
+const input = document.getElementById("messageInput");
+const sendBtn = document.getElementById("sendBtn");
+const currentUserSpan = document.getElementById("currentUser");
+const contactsListDiv = document.getElementById("contactsList");
 
-const $ = (id) => document.getElementById(id);
-
-document.addEventListener('DOMContentLoaded', init);
-
-async function init() {
-    state = readWorkspace();
-    bindEvents();
-    try {
-        const remoteWorkspace = await window.BasefillAPI?.loadWorkspace();
-        if (remoteWorkspace) state = normaliseWorkspace(remoteWorkspace);
-    } catch (error) {
-        console.warn('Workspace adapter unavailable; using local data:', error);
+// Initialize the app
+document.addEventListener('DOMContentLoaded', async function() {
+    // Check authentication first
+    if (!await checkAuth()) {
+        return;
     }
-    render();
-    updateApiStatus();
-}
-
-function bindEvents() {
-    $('newBaseBtn').addEventListener('click', () => openEntityModal('base'));
-    $('quickNewBaseBtn').addEventListener('click', () => openEntityModal('base'));
-    $('newCollectionBtn').addEventListener('click', () => openEntityModal('collection'));
-    $('addRecordBtn').addEventListener('click', () => openRecordModal());
-    $('emptyAddRecordBtn').addEventListener('click', () => openRecordModal());
-    $('addFieldBtn').addEventListener('click', openFieldModal);
-    $('deleteBaseBtn').addEventListener('click', deleteActiveBase);
-    $('deleteCollectionBtn').addEventListener('click', deleteActiveCollection);
-    $('recordSearch').addEventListener('input', renderRecords);
-    $('deleteSelectedBtn').addEventListener('click', deleteSelectedRecords);
-    $('clearSelectionBtn').addEventListener('click', clearSelection);
-    $('copyJsonBtn').addEventListener('click', copyCollectionJson);
-    $('exportBtn').addEventListener('click', exportCollection);
-    $('apiSettingsBtn').addEventListener('click', openIntegrationModal);
-    $('copyIntegrationBtn').addEventListener('click', copyIntegrationHook);
-    $('importBtn').addEventListener('click', openImportModal);
-    $('emptyImportBtn').addEventListener('click', openImportModal);
-    $('confirmImportBtn').addEventListener('click', importRecords);
-    $('importFile').addEventListener('change', handleImportFile);
-    $('entityForm').addEventListener('submit', handleEntitySubmit);
-    $('fieldForm').addEventListener('submit', handleFieldSubmit);
-    $('recordForm').addEventListener('submit', handleRecordSubmit);
-    $('tableWrap').addEventListener('click', handleTableClick);
-    $('tableWrap').addEventListener('change', handleTableChange);
-
-    document.querySelectorAll('[data-close-modal]').forEach((button) => {
-        button.addEventListener('click', () => closeModal(button.dataset.closeModal));
-    });
-
-    document.querySelectorAll('.modal').forEach((modal) => {
-        modal.addEventListener('click', (event) => {
-            if (event.target === modal) closeModal(modal.id);
+    
+    // Get current user
+    currentUser = getCurrentUser();
+    if (currentUser) {
+        currentUserSpan.textContent = currentUser.username;
+    }
+    
+    // Load contacts and messages
+    loadContacts(); // Changed to not be async since we're loading from localStorage
+    loadMessages();
+    renderContacts();
+    
+    // Setup real-time messaging
+    setupRealTimeMessaging();
+    
+    // Setup add contact button
+    setupAddContactButton();
+    
+    // Setup contact context menu
+    setupContactContextMenu();
+    
+    // Setup voice button
+    const voiceBtn = document.querySelector('.voice-btn');
+    if (voiceBtn) {
+        voiceBtn.addEventListener('click', function() {
+            alert('Voice message feature would be implemented here');
         });
-    });
+    }
+});
 
-    document.addEventListener('keydown', (event) => {
-        const targetTag = event.target.tagName.toLowerCase();
-        if (event.key === '/' && targetTag !== 'input' && targetTag !== 'textarea') {
-            event.preventDefault();
-            $('recordSearch').focus();
-        }
-        if (event.key === 'Escape') {
-            document.querySelectorAll('.modal:not([hidden])').forEach((modal) => closeModal(modal.id));
-        }
-    });
+// Setup real-time messaging
+async function setupRealTimeMessaging() {
+    await waitForSupabase();
+    
+    if (cloudServiceInstance && currentUser) {
+        // Subscribe to real-time messages
+        messageSubscription = cloudServiceInstance.subscribeToMessages(currentUser.accountId, handleNewMessage);
+        
+        // Poll for messages every 5 seconds as backup
+        startMessagePolling();
+    }
 }
 
-function createId(prefix) {
-    const random = Math.random().toString(36).slice(2, 8);
-    return `${prefix}_${Date.now().toString(36)}_${random}`;
-}
-
-function createField(key, label, type = 'text', required = false) {
-    return { key, label, type, required };
-}
-
-function createCollection(name, description = '') {
-    return {
-        id: createId('col'),
-        name,
-        description: description || 'A collection ready for seed data.',
-        fields: [
-            createField('id', 'ID', 'text', true),
-            createField('name', 'Name', 'text', true),
-            createField('status', 'Status', 'status'),
-            createField('created_at', 'Created at', 'date')
-        ],
-        records: []
-    };
-}
-
-function getDefaultWorkspace() {
-    const users = {
-        id: 'collection_users',
-        name: 'Users',
-        description: 'People and service accounts used across the product.',
-        fields: [
-            createField('id', 'ID', 'text', true),
-            createField('name', 'Name', 'text', true),
-            createField('email', 'Email', 'text'),
-            createField('role', 'Role', 'text'),
-            createField('status', 'Status', 'status'),
-            createField('created_at', 'Created at', 'date')
-        ],
-        records: [
-            {
-                id: 'usr_001',
-                name: 'Maya Chen',
-                email: 'maya@example.dev',
-                role: 'Admin',
-                status: 'active',
-                created_at: '2026-07-18'
-            },
-            {
-                id: 'usr_002',
-                name: 'Noah Williams',
-                email: 'noah@example.dev',
-                role: 'Editor',
-                status: 'active',
-                created_at: '2026-07-22'
-            },
-            {
-                id: 'usr_003',
-                name: 'Priya Shah',
-                email: 'priya@example.dev',
-                role: 'Viewer',
-                status: 'draft',
-                created_at: '2026-07-29'
+// Polling: fetch messages from server every 5 seconds
+function startMessagePolling() {
+    setInterval(async () => {
+        if (!cloudServiceInstance || !currentUser) return;
+        
+        try {
+            const serverMessages = await cloudServiceInstance.getMessagesForUser(currentUser.accountId);
+            
+            for (const msg of serverMessages) {
+                // handleNewMessage will process and delete from server
+                await handleNewMessage(msg);
             }
-        ]
-    };
+        } catch (err) {
+            console.warn('Polling error:', err);
+        }
+    }, 5000);
+}
 
-    const projects = {
-        id: 'collection_projects',
-        name: 'Projects',
-        description: 'Projects to use in local development and previews.',
-        fields: [
-            createField('id', 'ID', 'text', true),
-            createField('name', 'Name', 'text', true),
-            createField('owner', 'Owner', 'text'),
-            createField('status', 'Status', 'status'),
-            createField('created_at', 'Created at', 'date')
-        ],
-        records: [
-            { id: 'prj_001', name: 'Atlas', owner: 'Maya Chen', status: 'active', created_at: '2026-07-15' },
-            { id: 'prj_002', name: 'Orbit', owner: 'Noah Williams', status: 'draft', created_at: '2026-07-25' }
-        ]
-    };
-
-    const flags = {
-        id: 'collection_flags',
-        name: 'Feature flags',
-        description: 'Toggleable values for testing new product behavior.',
-        fields: [
-            createField('id', 'ID', 'text', true),
-            createField('name', 'Name', 'text', true),
-            createField('enabled', 'Enabled', 'boolean'),
-            createField('description', 'Description', 'text')
-        ],
-        records: [
-            { id: 'flag_001', name: 'new_dashboard', enabled: true, description: 'Use the new developer dashboard.' },
-            { id: 'flag_002', name: 'audit_log', enabled: false, description: 'Record audit events in preview builds.' }
-        ]
-    };
-
-    return {
-        version: 1,
-        activeBaseId: 'base_product',
-        activeCollectionId: users.id,
-        bases: [
-            {
-                id: 'base_product',
-                name: 'Product API',
-                description: 'A compact seed workspace for your product data.',
-                collections: [users, projects, flags]
-            },
-            {
-                id: 'base_staging',
-                name: 'Staging sandbox',
-                description: 'Scratch data for local integration tests.',
-                collections: [createCollection('Records', 'A blank collection for your next seed.')]
+// Handle new incoming messages
+async function handleNewMessage(message) {
+    console.log('Received new message:', message);
+    
+    // Only process messages meant for us
+    if (message.receiver_id !== currentUser.accountId) return;
+    
+    // Try to decrypt if message is E2E encrypted
+    let messageContent = message.content;
+    if (message.content && message.content.startsWith('E2E:') && typeof E2E !== 'undefined') {
+        try {
+            const encryptedData = JSON.parse(message.content.substring(4));
+            const privateKey = E2E.getPrivateKey();
+            if (privateKey) {
+                messageContent = await E2E.decryptMessage(encryptedData, privateKey);
             }
-        ]
+        } catch (decErr) {
+            console.warn('Failed to decrypt message:', decErr);
+            messageContent = '[Encrypted message]';
+        }
+    }
+    
+    // Get sender name from contacts
+    const senderContact = contacts.find(c => c.id === message.sender_id);
+    const senderName = senderContact ? senderContact.name : 'Unknown';
+    
+    // Check if this message already exists (avoid duplicates)
+    const existingMsg = messages.find(m => 
+        m.text === messageContent && 
+        m.senderId === message.sender_id && 
+        Math.abs(m.timestamp - new Date(message.created_at).getTime()) < 5000
+    );
+    if (existingMsg) return;
+    
+    // Create formatted message with unique ID
+    const formattedMessage = {
+        id: message.id || crypto.randomUUID(),
+        text: messageContent,
+        senderId: message.sender_id,
+        senderName: message.sender_id === currentUser.accountId ? currentUser.username : senderName,
+        receiverId: message.receiver_id,
+        timestamp: new Date(message.created_at).getTime()
     };
-}
-
-function readWorkspace() {
-    try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) return normaliseWorkspace(JSON.parse(saved));
-    } catch (error) {
-        console.warn('Could not read workspace:', error);
+    
+    // Check if this message is for the current conversation
+    if (currentContact && 
+        ((message.sender_id === currentContact.id && message.receiver_id === currentUser.accountId) ||
+         (message.sender_id === currentUser.accountId && message.receiver_id === currentContact.id))) {
+        
+        messages.push(formattedMessage);
+        saveMessages();
+        addMessageToDOM(formattedMessage);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        
+        // Update contact's last message
+        currentContact.lastMessage = messageContent;
+        currentContact.timestamp = formattedMessage.timestamp;
+        saveContacts();
+        renderContacts();
+    } else {
+        // Message is for a different conversation
+        const contactToUpdate = contacts.find(c => c.id === message.sender_id);
+        if (contactToUpdate) {
+            contactToUpdate.lastMessage = messageContent;
+            contactToUpdate.timestamp = formattedMessage.timestamp;
+            saveContacts();
+            renderContacts();
+        }
     }
-    return getDefaultWorkspace();
-}
-
-function normaliseWorkspace(workspace) {
-    if (!workspace || !Array.isArray(workspace.bases) || workspace.bases.length === 0) {
-        return getDefaultWorkspace();
+    
+    // Delete message from Supabase after receiving (keep DB minimal)
+    if (cloudServiceInstance && message.id) {
+        cloudServiceInstance.deleteMessage(message.id);
     }
-
-    workspace.bases = workspace.bases.map((base) => ({
-        id: base.id || createId('base'),
-        name: base.name || 'Untitled base',
-        description: base.description || 'A workspace for seed data.',
-        collections: Array.isArray(base.collections) && base.collections.length > 0
-            ? base.collections.map(normaliseCollection)
-            : [createCollection('Records')]
-    }));
-    workspace.version = 1;
-    ensureActiveSelection(workspace);
-    return workspace;
 }
 
-function normaliseCollection(collection) {
-    const fields = Array.isArray(collection.fields) && collection.fields.length > 0
-        ? collection.fields.map((field) => ({
-            key: field.key || fieldKey(field.label || 'field'),
-            label: field.label || labelFromKey(field.key || 'field'),
-            type: ['text', 'number', 'date', 'boolean', 'url', 'status'].includes(field.type) ? field.type : 'text',
-            required: Boolean(field.required)
-        }))
-        : createCollection(collection.name || 'Records').fields;
+// Load contacts from localStorage (empty by default)
+function loadContacts() {
+    const savedContacts = localStorage.getItem("contacts");
+    if (savedContacts) {
+        contacts = JSON.parse(savedContacts);
+    } else {
+        contacts = []; // Start with empty contacts list
+    }
+}
 
-    if (!fields.some((field) => field.key === 'id')) fields.unshift(createField('id', 'ID', 'text', true));
+// Save contacts to localStorage (contacts are local)
+function saveContacts() {
+    localStorage.setItem("contacts", JSON.stringify(contacts));
+}
 
-    return {
-        id: collection.id || createId('col'),
-        name: collection.name || 'Untitled collection',
-        description: collection.description || 'A collection ready for seed data.',
-        fields,
-        records: Array.isArray(collection.records) ? collection.records : []
+// Render contacts list
+function renderContacts() {
+    contactsListDiv.innerHTML = "";
+    contacts.forEach((contact, index) => {
+        const contactDiv = document.createElement("div");
+        contactDiv.className = "contact-item";
+        contactDiv.dataset.index = index; // Add index for context menu
+        
+        // Get first letter of name for avatar
+        const firstLetter = contact.name.charAt(0).toUpperCase();
+        
+        contactDiv.innerHTML = `
+            <div class="contact-avatar">${firstLetter}</div>
+            <div class="contact-info">
+                <div class="contact-name">${contact.name}</div>
+                <div class="contact-last-message">${contact.lastMessage}</div>
+            </div>
+            <div class="contact-timestamp">${formatTime(contact.timestamp)}</div>
+        `;
+        contactDiv.addEventListener("click", (event) => selectContact(contact, event));
+        contactsListDiv.appendChild(contactDiv);
+    });
+}
+
+// Select a contact to chat with
+function selectContact(contact, event) {
+    // Remove active class from all contacts
+    document.querySelectorAll('.contact-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    
+    // Add active class to selected contact
+    event.currentTarget.classList.add('active');
+    
+    // Set current contact
+    currentContact = contact;
+    
+    // Load messages for this contact
+    loadMessages();
+    
+    console.log("Selected contact:", contact);
+}
+
+// Load messages from localStorage (now all messages are stored locally)
+async function loadMessages() {
+    if (!currentUser || !currentContact) {
+        messages = [];
+        renderMessages();
+        return;
+    }
+    
+    // Load messages from localStorage
+    const conversationKey = getConversationKey(currentUser.accountId, currentContact.id);
+    const savedMessages = localStorage.getItem(conversationKey);
+    
+    if (savedMessages) {
+        messages = JSON.parse(savedMessages);
+    } else {
+        messages = [];
+    }
+    
+    renderMessages();
+}
+
+// Save messages to localStorage
+function saveMessages() {
+    if (currentUser && currentContact) {
+        const conversationKey = getConversationKey(currentUser.accountId, currentContact.id);
+        localStorage.setItem(conversationKey, JSON.stringify(messages));
+    }
+}
+
+// Generate a unique key for a conversation between two users
+function getConversationKey(user1Id, user2Id) {
+    // Sort IDs to ensure consistent key regardless of order
+    const ids = [user1Id, user2Id].sort();
+    return `conversation_${ids[0]}_${ids[1]}`;
+}
+
+// Render all messages
+function renderMessages() {
+    messagesDiv.innerHTML = "";
+    messages.forEach((msg) => {
+        addMessageToDOM(msg);
+    });
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// Add a message to the DOM
+function addMessageToDOM(msg) {
+    const messageDiv = document.createElement("div");
+    messageDiv.classList.add("message");
+    messageDiv.classList.add(msg.senderId === currentUser.accountId ? "sent" : "received");
+    messageDiv.dataset.id = msg.id;
+    
+    const messageHeader = document.createElement("div");
+    messageHeader.classList.add("message-header");
+    messageHeader.innerHTML = `
+        <span class="sender">${msg.senderName}</span>
+    `;
+    
+    const messageText = document.createElement("div");
+    messageText.classList.add("message-text");
+    messageText.textContent = msg.text;
+    
+    const timestamp = document.createElement("div");
+    timestamp.classList.add("timestamp");
+    timestamp.textContent = formatTime(msg.timestamp);
+    
+    messageDiv.appendChild(messageHeader);
+    messageDiv.appendChild(messageText);
+    messageDiv.appendChild(timestamp);
+    
+    messagesDiv.appendChild(messageDiv);
+}
+
+// Format timestamp
+function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Send a new message
+async function sendMessage() {
+    const text = input.value.trim();
+    if (text === "" || !currentUser || !currentContact) return;
+    
+    // Add message to UI immediately with unique ID
+    const message = {
+        id: crypto.randomUUID(),
+        text: text,
+        senderId: currentUser.accountId,
+        senderName: currentUser.username,
+        receiverId: currentContact.id,
+        timestamp: new Date().getTime()
     };
-}
-
-function ensureActiveSelection(workspace = state) {
-    const base = workspace.bases.find((item) => item.id === workspace.activeBaseId) || workspace.bases[0];
-    workspace.activeBaseId = base.id;
-    if (!Array.isArray(base.collections) || base.collections.length === 0) base.collections = [createCollection('Records')];
-    const collection = base.collections.find((item) => item.id === workspace.activeCollectionId) || base.collections[0];
-    workspace.activeCollectionId = collection.id;
-}
-
-function getActiveBase() {
-    ensureActiveSelection();
-    return state.bases.find((base) => base.id === state.activeBaseId);
-}
-
-function getActiveCollection() {
-    const base = getActiveBase();
-    return base.collections.find((collection) => collection.id === state.activeCollectionId) || base.collections[0];
-}
-
-function saveWorkspace() {
+    
+    messages.push(message);
+    saveMessages();
+    addMessageToDOM(message);
+    
+    // Update the last message for the active contact
+    currentContact.lastMessage = text;
+    currentContact.timestamp = new Date().getTime();
+    saveContacts();
+    renderContacts();
+    
+    input.value = "";
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    
+    // Attempt to send to cloud as encrypted backup
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        $('storageStatus').textContent = 'Saved locally';
-    } catch (error) {
-        console.warn('Could not save workspace:', error);
-        $('storageStatus').textContent = 'Save unavailable';
-        showToast('Could not save this change locally.', 'error');
-    }
-
-    const remoteSave = window.BasefillAPI?.saveWorkspace(state);
-    if (remoteSave && typeof remoteSave.catch === 'function') {
-        remoteSave.catch((error) => console.warn('Workspace adapter save failed:', error));
-    }
-}
-
-function updateApiStatus() {
-    const connected = Boolean(window.BasefillAPI?.isConfigured);
-    const badge = $('apiStatusBadge');
-    const title = $('integrationStatusTitle');
-    const copy = $('integrationStatusCopy');
-    if (connected) {
-        badge.innerHTML = '<span class="workspace-dot" aria-hidden="true"></span>API connected';
-        title.textContent = 'Your adapter is connected';
-        copy.textContent = 'This workspace can now hydrate and persist through your configured integration hooks.';
-    } else {
-        badge.innerHTML = '<span class="workspace-dot" aria-hidden="true"></span>Demo mode';
-        title.textContent = 'Running in demo mode';
-        copy.textContent = 'Records are saved in this browser until your adapter is connected.';
-    }
-}
-
-function openIntegrationModal() {
-    updateApiStatus();
-    openModal('integrationModal');
-}
-
-function copyIntegrationHook() {
-    const snippet = `window.BasefillAPI.hooks.loadWorkspace = async () => {
-  return fetch('/api/workspace').then(response => response.json());
-};`;
-    copyText(snippet).then(() => showToast('Starter hook copied to clipboard.')).catch(() => showToast('Could not copy the starter hook.', 'error'));
-}
-
-function emitIntegrationHook(hookName, payload) {
-    const result = window.BasefillAPI?.emit(hookName, payload);
-    if (result && typeof result.catch === 'function') {
-        result.catch((error) => console.warn(`${hookName} hook failed:`, error));
-    }
-}
-
-function render() {
-    ensureActiveSelection();
-    renderBases();
-    renderBaseSummary();
-    renderCollections();
-    renderCollectionHeader();
-    renderRecords();
-    renderFields();
-    saveWorkspace();
-}
-
-function renderBases() {
-    const list = $('basesList');
-    list.innerHTML = state.bases.map((base) => {
-        const collectionCount = base.collections.length;
-        return `
-            <button class="base-item ${base.id === state.activeBaseId ? 'active' : ''}" type="button" data-base-id="${escapeAttribute(base.id)}">
-                <span class="base-item-mark" aria-hidden="true">${escapeHtml(base.name.slice(0, 1).toUpperCase())}</span>
-                <span class="base-item-copy">
-                    <strong>${escapeHtml(base.name)}</strong>
-                    <small>${collectionCount} collection${collectionCount === 1 ? '' : 's'}</small>
-                </span>
-                <span class="base-item-arrow" aria-hidden="true">›</span>
-            </button>
-        `;
-    }).join('');
-
-    list.querySelectorAll('[data-base-id]').forEach((button) => {
-        button.addEventListener('click', () => {
-            state.activeBaseId = button.dataset.baseId;
-            ensureActiveSelection();
-            selectedRecordIds.clear();
-            $('recordSearch').value = '';
-            render();
-        });
-    });
-}
-
-function renderBaseSummary() {
-    const base = getActiveBase();
-    $('activeBaseName').textContent = base.name;
-    $('baseTitle').textContent = base.name;
-    $('baseDescription').textContent = base.description;
-}
-
-function renderCollections() {
-    const base = getActiveBase();
-    const list = $('collectionsList');
-    list.innerHTML = base.collections.map((collection) => `
-        <button class="collection-item ${collection.id === state.activeCollectionId ? 'active' : ''}" type="button" data-collection-id="${escapeAttribute(collection.id)}">
-            <span class="collection-icon" aria-hidden="true">${escapeHtml(collection.name.slice(0, 1).toUpperCase())}</span>
-            <span class="collection-item-copy">
-                <strong>${escapeHtml(collection.name)}</strong>
-                <small>${collection.records.length} record${collection.records.length === 1 ? '' : 's'}</small>
-            </span>
-        </button>
-    `).join('');
-
-    list.querySelectorAll('[data-collection-id]').forEach((button) => {
-        button.addEventListener('click', () => {
-            state.activeCollectionId = button.dataset.collectionId;
-            selectedRecordIds.clear();
-            $('recordSearch').value = '';
-            render();
-        });
-    });
-}
-
-function renderCollectionHeader() {
-    const collection = getActiveCollection();
-    $('activeCollectionName').textContent = collection.name;
-    $('collectionSlug').textContent = `/${slugify(collection.name)}`;
-    $('collectionTitle').textContent = collection.name;
-    $('collectionDescription').textContent = collection.description;
-    $('fieldCount').textContent = `${collection.fields.length} field${collection.fields.length === 1 ? '' : 's'}`;
-}
-
-function renderRecords() {
-    const collection = getActiveCollection();
-    const searchTerm = $('recordSearch').value.trim().toLowerCase();
-    const records = collection.records || [];
-    const visibleRecords = records.filter((record) => {
-        if (!searchTerm) return true;
-        return collection.fields.some((field) => String(record[field.key] ?? '').toLowerCase().includes(searchTerm));
-    });
-
-    selectedRecordIds = new Set([...selectedRecordIds].filter((id) => records.some((record) => String(record.id) === String(id))));
-    $('recordCount').textContent = searchTerm
-        ? `${visibleRecords.length} of ${records.length} record${records.length === 1 ? '' : 's'}`
-        : `${records.length} record${records.length === 1 ? '' : 's'}`;
-    updateSelectionUI();
-
-    const empty = records.length === 0;
-    $('emptyState').hidden = !empty;
-    $('tableWrap').hidden = empty;
-    if (empty) {
-        $('tableWrap').innerHTML = '';
-        return;
-    }
-
-    if (visibleRecords.length === 0) {
-        $('tableWrap').hidden = false;
-        $('emptyState').hidden = true;
-        $('tableWrap').innerHTML = `
-            <div class="no-results">
-                <div class="no-results-icon" aria-hidden="true">⌕</div>
-                <strong>No matching records</strong>
-                <p>Try a different search term or clear the search field.</p>
-                <button type="button" class="toolbar-link" data-clear-search>Clear search</button>
-            </div>
-        `;
-        return;
-    }
-
-    const allVisibleSelected = visibleRecords.length > 0 && visibleRecords.every((record) => selectedRecordIds.has(record.id));
-    $('tableWrap').innerHTML = `
-        <table class="records-table">
-            <thead>
-                <tr>
-                    <th class="select-column"><input type="checkbox" aria-label="Select all visible records" data-select-all ${allVisibleSelected ? 'checked' : ''}></th>
-                    ${collection.fields.map((field) => `<th>${escapeHtml(field.label)}${field.required ? '<span class="required-mark">*</span>' : ''}</th>`).join('')}
-                    <th class="row-actions-column"><span class="sr-only">Actions</span></th>
-                </tr>
-            </thead>
-            <tbody>
-                ${visibleRecords.map((record) => `
-                    <tr data-record-id="${escapeAttribute(String(record.id))}">
-                        <td class="select-column"><input type="checkbox" aria-label="Select ${escapeAttribute(String(record.name || record.id))}" data-select-record="${escapeAttribute(String(record.id))}" ${selectedRecordIds.has(record.id) ? 'checked' : ''}></td>
-                        ${collection.fields.map((field) => `<td title="${escapeAttribute(String(record[field.key] ?? ''))}">${formatCell(record[field.key], field)}</td>`).join('')}
-                        <td class="row-actions-column"><button class="row-action" type="button" data-delete-record="${escapeAttribute(String(record.id))}" aria-label="Delete record">···</button></td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-        <div class="table-footer"><span>Showing ${visibleRecords.length} of ${records.length}</span><span>Click a row to edit</span></div>
-    `;
-}
-
-function renderFields() {
-    const collection = getActiveCollection();
-    const list = $('fieldsList');
-    list.innerHTML = collection.fields.map((field) => `
-        <div class="field-item">
-            <div class="field-type-icon type-${escapeAttribute(field.type)}" aria-hidden="true">${fieldTypeMark(field.type)}</div>
-            <div class="field-copy">
-                <strong>${escapeHtml(field.label)} ${field.required ? '<span class="required-pill">Required</span>' : ''}</strong>
-                <code>${escapeHtml(field.key)}</code>
-            </div>
-            <div class="field-actions">
-                <span class="field-type-label">${escapeHtml(field.type)}</span>
-                ${field.key === 'id' ? '' : `<button class="field-delete" type="button" data-delete-field="${escapeAttribute(field.key)}" aria-label="Delete ${escapeAttribute(field.label)} field">×</button>`}
-            </div>
-        </div>
-    `).join('');
-
-    list.querySelectorAll('[data-delete-field]').forEach((button) => {
-        button.addEventListener('click', () => deleteField(button.dataset.deleteField));
-    });
-}
-
-function handleTableClick(event) {
-    const clearSearch = event.target.closest('[data-clear-search]');
-    if (clearSearch) {
-        $('recordSearch').value = '';
-        renderRecords();
-        return;
-    }
-
-    const deleteButton = event.target.closest('[data-delete-record]');
-    if (deleteButton) {
-        event.stopPropagation();
-        deleteRecord(deleteButton.dataset.deleteRecord);
-        return;
-    }
-
-    if (event.target.closest('input')) return;
-    const row = event.target.closest('tr[data-record-id]');
-    if (row) openRecordModal(row.dataset.recordId);
-}
-
-function handleTableChange(event) {
-    if (event.target.matches('[data-select-record]')) {
-        const id = event.target.dataset.selectRecord;
-        if (event.target.checked) selectedRecordIds.add(id);
-        else selectedRecordIds.delete(id);
-        updateSelectionUI();
-        renderRecords();
-        return;
-    }
-
-    if (event.target.matches('[data-select-all]')) {
-        const collection = getActiveCollection();
-        const searchTerm = $('recordSearch').value.trim().toLowerCase();
-        const visibleRecords = collection.records.filter((record) => !searchTerm || collection.fields.some((field) => String(record[field.key] ?? '').toLowerCase().includes(searchTerm)));
-        visibleRecords.forEach((record) => {
-            if (event.target.checked) selectedRecordIds.add(record.id);
-            else selectedRecordIds.delete(record.id);
-        });
-        renderRecords();
-    }
-}
-
-function updateSelectionUI() {
-    const count = selectedRecordIds.size;
-    $('selectionSummary').hidden = count === 0;
-    $('selectionSummary').textContent = count > 0 ? `${count} selected` : '';
-    $('deleteSelectedBtn').hidden = count === 0;
-    $('clearSelectionBtn').hidden = count === 0;
-}
-
-function clearSelection() {
-    selectedRecordIds.clear();
-    renderRecords();
-}
-
-function openEntityModal(mode) {
-    entityMode = mode;
-    const isBase = mode === 'base';
-    $('entityModalEyebrow').textContent = isBase ? 'NEW BASE' : 'NEW COLLECTION';
-    $('entityModalTitle').textContent = isBase ? 'Create a base' : 'Create a collection';
-    $('entityModalCopy').textContent = isBase
-        ? 'Keep related seed data together in one place.'
-        : 'Collections turn one base into focused, reusable data sets.';
-    $('entityName').placeholder = isBase ? 'e.g. Product API' : 'e.g. Orders';
-    $('entityDescription').placeholder = isBase ? 'What will this base help you seed?' : 'What belongs in this collection?';
-    $('entitySubmitBtn').textContent = isBase ? 'Create base' : 'Create collection';
-    $('entityForm').reset();
-    openModal('entityModal');
-    $('entityName').focus();
-}
-
-function handleEntitySubmit(event) {
-    event.preventDefault();
-    const name = $('entityName').value.trim();
-    const description = $('entityDescription').value.trim();
-    if (!name) return;
-
-    if (entityMode === 'base') {
-        const base = {
-            id: createId('base'),
-            name,
-            description: description || 'A workspace for seed data.',
-            collections: [createCollection('Records', 'A blank collection for your next seed.')]
-        };
-        state.bases.push(base);
-        state.activeBaseId = base.id;
-        state.activeCollectionId = base.collections[0].id;
-        emitIntegrationHook('onBaseCreated', base);
-        showToast(`Created ${name}.`);
-    } else {
-        const base = getActiveBase();
-        const collection = createCollection(name, description || 'A collection ready for seed data.');
-        base.collections.push(collection);
-        state.activeCollectionId = collection.id;
-        emitIntegrationHook('onCollectionCreated', { base, collection });
-        showToast(`Added ${name} collection.`);
-    }
-
-    selectedRecordIds.clear();
-    closeModal('entityModal');
-    render();
-}
-
-function deleteActiveBase() {
-    const base = getActiveBase();
-    if (state.bases.length === 1) {
-        showToast('Keep at least one base in the workspace.', 'error');
-        return;
-    }
-    if (!window.confirm(`Delete “${base.name}” and all of its records?`)) return;
-    state.bases = state.bases.filter((item) => item.id !== base.id);
-    state.activeBaseId = state.bases[0].id;
-    ensureActiveSelection();
-    selectedRecordIds.clear();
-    render();
-    emitIntegrationHook('onBaseDeleted', base);
-    showToast(`Deleted ${base.name}.`);
-}
-
-function deleteActiveCollection() {
-    const base = getActiveBase();
-    const collection = getActiveCollection();
-    if (base.collections.length === 1) {
-        showToast('Keep at least one collection in the base.', 'error');
-        return;
-    }
-    if (!window.confirm(`Delete “${collection.name}” and all of its records?`)) return;
-    base.collections = base.collections.filter((item) => item.id !== collection.id);
-    state.activeCollectionId = base.collections[0].id;
-    selectedRecordIds.clear();
-    render();
-    emitIntegrationHook('onCollectionDeleted', { base, collection });
-    showToast(`Deleted ${collection.name}.`);
-}
-
-function openFieldModal() {
-    $('fieldForm').reset();
-    openModal('fieldModal');
-    $('fieldLabel').focus();
-}
-
-function handleFieldSubmit(event) {
-    event.preventDefault();
-    const collection = getActiveCollection();
-    const label = $('fieldLabel').value.trim();
-    const type = $('fieldType').value;
-    const required = $('fieldRequired').checked;
-    const key = uniqueFieldKey(fieldKey(label), collection.fields);
-
-    if (!label) return;
-    collection.fields.push(createField(key, label, type, required));
-    collection.records.forEach((record) => {
-        if (!(key in record)) record[key] = getDefaultValue(collection.fields[collection.fields.length - 1]);
-    });
-    closeModal('fieldModal');
-    render();
-    emitIntegrationHook('onFieldCreated', { collection, field: collection.fields[collection.fields.length - 1] });
-    showToast(`Added ${label} field.`);
-}
-
-function deleteField(key) {
-    const collection = getActiveCollection();
-    const field = collection.fields.find((item) => item.key === key);
-    if (!field || field.key === 'id') return;
-    if (!window.confirm(`Delete the “${field.label}” field from this collection?`)) return;
-    collection.fields = collection.fields.filter((item) => item.key !== key);
-    collection.records.forEach((record) => delete record[key]);
-    render();
-    emitIntegrationHook('onFieldDeleted', { collection, field });
-    showToast(`Deleted ${field.label} field.`);
-}
-
-function openRecordModal(recordId = null) {
-    const collection = getActiveCollection();
-    editingRecordId = recordId;
-    const record = recordId ? collection.records.find((item) => String(item.id) === String(recordId)) : null;
-    if (recordId && !record) return;
-
-    $('recordModalEyebrow').textContent = record ? 'EDIT RECORD' : 'NEW RECORD';
-    $('recordModalTitle').textContent = record ? 'Edit record' : 'Add a record';
-    $('recordForm').innerHTML = `
-        <div class="record-fields-grid">
-            ${collection.fields.map((field) => recordFieldMarkup(field, record ? record[field.key] : getDefaultValue(field))).join('')}
-        </div>
-        <div class="modal-actions">
-            <button class="secondary-action" type="button" data-close-modal="recordModal">Cancel</button>
-            <button class="primary-action" type="submit">${record ? 'Save changes' : 'Add record'}</button>
-        </div>
-    `;
-    $('recordForm').querySelectorAll('[data-close-modal]').forEach((button) => {
-        button.addEventListener('click', () => closeModal('recordModal'));
-    });
-    openModal('recordModal');
-    const firstInput = $('recordForm').querySelector('input, select, textarea');
-    if (firstInput) firstInput.focus();
-}
-
-function recordFieldMarkup(field, value) {
-    const inputName = `record_${field.key}`;
-    const required = field.required ? 'required' : '';
-    const label = `${escapeHtml(field.label)}${field.required ? ' <span class="required-mark">*</span>' : ''}`;
-    const helper = `<span class="field-key-hint">${escapeHtml(field.key)}</span>`;
-    let input;
-
-    if (field.type === 'boolean') {
-        input = `
-            <label class="toggle-field" for="${escapeAttribute(inputName)}">
-                <input id="${escapeAttribute(inputName)}" type="checkbox" name="${escapeAttribute(inputName)}" ${value === true || String(value).toLowerCase() === 'true' ? 'checked' : ''}>
-                <span class="toggle-track" aria-hidden="true"><span></span></span>
-                <span>Enabled</span>
-            </label>
-        `;
-    } else if (field.type === 'status') {
-        const options = ['active', 'draft', 'inactive', 'archived'];
-        if (value && !options.includes(String(value).toLowerCase())) options.unshift(String(value).toLowerCase());
-        input = `<select id="${escapeAttribute(inputName)}" name="${escapeAttribute(inputName)}" ${required}>${options.map((option) => `<option value="${escapeAttribute(option)}" ${String(value).toLowerCase() === option ? 'selected' : ''}>${escapeHtml(labelFromKey(option))}</option>`).join('')}</select>`;
-    } else if (field.type === 'number') {
-        input = `<input id="${escapeAttribute(inputName)}" type="number" name="${escapeAttribute(inputName)}" value="${escapeAttribute(value ?? '')}" ${required} placeholder="Enter a number">`;
-    } else if (field.type === 'date') {
-        input = `<input id="${escapeAttribute(inputName)}" type="date" name="${escapeAttribute(inputName)}" value="${escapeAttribute(value ?? '')}" ${required}>`;
-    } else if (field.type === 'url') {
-        input = `<input id="${escapeAttribute(inputName)}" type="url" name="${escapeAttribute(inputName)}" value="${escapeAttribute(value ?? '')}" ${required} placeholder="https://...">`;
-    } else {
-        input = `<input id="${escapeAttribute(inputName)}" type="text" name="${escapeAttribute(inputName)}" value="${escapeAttribute(value ?? '')}" ${required} placeholder="Enter a value">`;
-    }
-
-    return `<div class="form-field record-form-field"><label for="${escapeAttribute(inputName)}">${label} ${helper}</label>${input}</div>`;
-}
-
-function handleRecordSubmit(event) {
-    event.preventDefault();
-    const collection = getActiveCollection();
-    const form = event.currentTarget;
-    const record = {};
-
-    for (const field of collection.fields) {
-        const input = form.elements[`record_${field.key}`];
-        let value;
-        if (field.type === 'boolean') {
-            value = Boolean(input && input.checked);
-        } else {
-            value = input ? input.value.trim() : '';
-            if (field.type === 'number' && value !== '') {
-                value = Number(value);
-                if (!Number.isFinite(value)) {
-                    showToast(`${field.label} must be a number.`, 'error');
-                    input.focus();
-                    return;
+        await waitForSupabase();
+        if (cloudServiceInstance) {
+            // Try to encrypt the message for the recipient
+            let contentToSend = text;
+            try {
+                if (typeof E2E !== 'undefined') {
+                    const recipientPublicKey = await E2E.getContactPublicKey(currentContact.id, cloudServiceInstance);
+                    if (recipientPublicKey) {
+                        const encrypted = await E2E.encryptMessage(text, recipientPublicKey);
+                        contentToSend = 'E2E:' + JSON.stringify(encrypted);
+                    }
                 }
+            } catch (encErr) {
+                console.warn('Encryption failed, sending plaintext:', encErr);
+            }
+            
+            await cloudServiceInstance.sendMessage(
+                currentUser.accountId,
+                currentContact.id,
+                contentToSend
+            );
+        }
+    } catch (err) {
+        console.warn("Could not send message to cloud, but saved locally:", err);
+    }
+}
+
+// Event Listeners
+sendBtn.addEventListener("click", sendMessage);
+
+// Send on ENTER key
+input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage();
+});
+
+// ---- Custom Right-Click Menu for Messages ----
+const contextMenu = document.createElement("div");
+contextMenu.id = "contextMenu";
+
+const menuItems = [
+    { text: "Copy", action: copyMessage },
+    { text: "Forward", action: forwardMessage },
+    { text: "Quote", action: quoteMessage },
+    { text: "Delete", action: deleteMessage }
+];
+
+menuItems.forEach(item => {
+    const menuItem = document.createElement("div");
+    menuItem.classList.add("context-menu-item");
+    menuItem.textContent = item.text;
+    menuItem.addEventListener("click", item.action);
+    contextMenu.appendChild(menuItem);
+});
+
+document.body.appendChild(contextMenu);
+
+let selectedMessageId = null;
+
+messagesDiv.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    
+    let messageElement = event.target;
+    while (messageElement && !messageElement.classList.contains("message")) {
+        messageElement = messageElement.parentElement;
+    }
+    
+    if (messageElement) {
+        selectedMessageId = messageElement.dataset.id;
+        
+        contextMenu.style.left = event.pageX + "px";
+        contextMenu.style.top = event.pageY + "px";
+        contextMenu.style.display = "block";
+    }
+});
+
+// Hide on click elsewhere
+document.addEventListener("click", () => {
+    contextMenu.style.display = "none";
+    contactContextMenu.style.display = "none";
+});
+
+// Context Menu Actions
+function copyMessage() {
+    if (selectedMessageId !== null) {
+        const message = messages.find(m => m.id === selectedMessageId);
+        if (message) {
+            navigator.clipboard.writeText(message.text).then(() => {
+                console.log("Message copied to clipboard");
+            }).catch(err => {
+                console.error("Failed to copy message: ", err);
+            });
+        }
+    }
+    contextMenu.style.display = "none";
+}
+
+function forwardMessage() {
+    if (selectedMessageId !== null) {
+        const message = messages.find(m => m.id === selectedMessageId);
+        if (message) {
+            console.log("Forwarding message:", message.text);
+            alert(`Forwarding message: "${message.text}"`);
+        }
+    }
+    contextMenu.style.display = "none";
+}
+
+function quoteMessage() {
+    if (selectedMessageId !== null) {
+        const message = messages.find(m => m.id === selectedMessageId);
+        if (message) {
+            input.value = `"${message.text}" `;
+            input.focus();
+        }
+    }
+    contextMenu.style.display = "none";
+}
+
+function deleteMessage() {
+    if (selectedMessageId !== null) {
+        if (confirm("Are you sure you want to delete this message?")) {
+            const index = messages.findIndex(m => m.id === selectedMessageId);
+            if (index !== -1) {
+                messages.splice(index, 1);
+                saveMessages();
+                renderMessages();
             }
         }
-        if (field.required && value === '') {
-            showToast(`${field.label} is required.`, 'error');
-            if (input) input.focus();
-            return;
+    }
+    contextMenu.style.display = "none";
+}
+
+// ---- Custom Right-Click Menu for Contacts ----
+const contactContextMenu = document.createElement("div");
+contactContextMenu.id = "contactContextMenu";
+
+const contactMenuItems = [
+    { text: "Delete Contact", action: deleteContact }
+];
+
+contactMenuItems.forEach(item => {
+    const menuItem = document.createElement("div");
+    menuItem.classList.add("context-menu-item");
+    menuItem.textContent = item.text;
+    menuItem.addEventListener("click", item.action);
+    contactContextMenu.appendChild(menuItem);
+});
+
+document.body.appendChild(contactContextMenu);
+
+let selectedContactIndex = null;
+
+function setupContactContextMenu() {
+    contactsListDiv.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        
+        // Find the contact element that was clicked
+        let contactElement = event.target;
+        while (contactElement && !contactElement.classList.contains("contact-item")) {
+            contactElement = contactElement.parentElement;
         }
-        record[field.key] = value;
-    }
-
-    record.id = String(record.id || createId('rec'));
-    const duplicate = collection.records.find((item) => String(item.id) === record.id && String(item.id) !== String(editingRecordId));
-    if (duplicate) {
-        showToast('Every record needs a unique ID.', 'error');
-        const idInput = form.elements.record_id;
-        if (idInput) idInput.focus();
-        return;
-    }
-
-    if (editingRecordId) {
-        const index = collection.records.findIndex((item) => String(item.id) === String(editingRecordId));
-        if (index !== -1) collection.records[index] = record;
-        emitIntegrationHook('onRecordUpdated', { collection, record });
-        showToast('Record updated.');
-    } else {
-        collection.records.push(record);
-        emitIntegrationHook('onRecordCreated', { collection, record });
-        showToast('Record added.');
-    }
-
-    editingRecordId = null;
-    closeModal('recordModal');
-    render();
-}
-
-function deleteRecord(recordId) {
-    const collection = getActiveCollection();
-    const record = collection.records.find((item) => String(item.id) === String(recordId));
-    if (!record) return;
-    if (!window.confirm(`Delete record “${record.name || record.id}”?`)) return;
-    collection.records = collection.records.filter((item) => String(item.id) !== String(recordId));
-    selectedRecordIds.delete(recordId);
-    render();
-    emitIntegrationHook('onRecordDeleted', { collection, record });
-    showToast('Record deleted.');
-}
-
-function deleteSelectedRecords() {
-    const collection = getActiveCollection();
-    const count = selectedRecordIds.size;
-    if (!count || !window.confirm(`Delete ${count} selected record${count === 1 ? '' : 's'}?`)) return;
-    const deletedRecordIds = [...selectedRecordIds];
-    collection.records = collection.records.filter((record) => !selectedRecordIds.has(record.id));
-    selectedRecordIds.clear();
-    render();
-    emitIntegrationHook('onRecordDeleted', { collection, recordIds: deletedRecordIds });
-    showToast(`${count} record${count === 1 ? '' : 's'} deleted.`);
-}
-
-function openImportModal() {
-    $('importInput').value = '';
-    $('importFile').value = '';
-    $('importFileName').textContent = 'No file selected';
-    openModal('importModal');
-    $('importInput').focus();
-}
-
-async function handleImportFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    $('importFileName').textContent = file.name;
-    try {
-        $('importInput').value = await file.text();
-    } catch (error) {
-        showToast('Could not read that file.', 'error');
-    }
-}
-
-function importRecords() {
-    const raw = $('importInput').value.trim();
-    if (!raw) {
-        showToast('Paste JSON or CSV data first.', 'error');
-        return;
-    }
-
-    let incoming;
-    try {
-        incoming = parseImport(raw);
-    } catch (error) {
-        showToast(error.message, 'error');
-        return;
-    }
-    if (!incoming.length) {
-        showToast('No records were found in that data.', 'error');
-        return;
-    }
-
-    const collection = getActiveCollection();
-    const existingKeys = new Set(collection.fields.map((field) => field.key));
-    const keyMap = new Map(collection.fields.map((field) => [field.key.toLowerCase(), field.key]));
-
-    incoming.forEach((rawRecord) => {
-        Object.keys(rawRecord).forEach((rawKey) => {
-            const baseKey = fieldKey(rawKey);
-            if (keyMap.has(baseKey.toLowerCase())) return;
-            const key = uniqueFieldKey(baseKey, collection.fields);
-            const values = incoming.map((item) => item[rawKey]);
-            collection.fields.push(createField(key, labelFromKey(key), inferFieldType(key, values)));
-            existingKeys.add(key);
-            keyMap.set(baseKey.toLowerCase(), key);
-        });
-    });
-
-    const existingIds = new Set(collection.records.map((record) => String(record.id)));
-    incoming.forEach((rawRecord, index) => {
-        const record = {};
-        Object.entries(rawRecord).forEach(([rawKey, value]) => {
-            const key = keyMap.get(fieldKey(rawKey).toLowerCase()) || fieldKey(rawKey);
-            record[key] = coerceImportedValue(value, collection.fields.find((field) => field.key === key));
-        });
-        let id = String(record.id || createId(`rec${index + 1}`));
-        while (existingIds.has(id)) id = createId(`rec${index + 1}`);
-        record.id = id;
-        existingIds.add(id);
-        collection.records.push(record);
-    });
-
-    selectedRecordIds.clear();
-    closeModal('importModal');
-    render();
-    emitIntegrationHook('onRecordsImported', { collection, records: incoming });
-    showToast(`Imported ${incoming.length} record${incoming.length === 1 ? '' : 's'}.`);
-}
-
-function parseImport(raw) {
-    const firstCharacter = raw.trim().charAt(0);
-    if (firstCharacter === '[' || firstCharacter === '{') {
-        let parsed;
-        try {
-            parsed = JSON.parse(raw);
-        } catch (error) {
-            throw new Error('That JSON is not valid.');
+        
+        if (contactElement) {
+            selectedContactIndex = parseInt(contactElement.dataset.index);
+            
+            contactContextMenu.style.left = event.pageX + "px";
+            contactContextMenu.style.top = event.pageY + "px";
+            contactContextMenu.style.display = "block";
         }
-        const records = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.records) ? parsed.records : [parsed];
-        if (!records.every((record) => record && typeof record === 'object' && !Array.isArray(record))) throw new Error('JSON must contain objects.');
-        return records;
-    }
-
-    const rows = parseCsv(raw);
-    if (rows.length < 2) throw new Error('CSV needs a header row and at least one record.');
-    const headers = rows[0].map((header, index) => fieldKey(header) || `field_${index + 1}`);
-    return rows.slice(1).filter((row) => row.some((value) => value.trim() !== '')).map((row) => {
-        const record = {};
-        headers.forEach((header, index) => { record[header] = row[index] ?? ''; });
-        return record;
     });
 }
 
-function parseCsv(text) {
-    const rows = [];
-    let row = [];
-    let value = '';
-    let quoted = false;
+// Contact Context Menu Action
+function deleteContact() {
+    if (selectedContactIndex !== null) {
+        if (confirm("Are you sure you want to delete this contact?")) {
+            // Remove contact from contacts array
+            contacts.splice(selectedContactIndex, 1);
+            saveContacts();
+            renderContacts();
+            
+            // If the deleted contact was the current contact, clear the chat
+            if (currentContact && selectedContactIndex === contacts.findIndex(c => c.id === currentContact.id)) {
+                currentContact = null;
+                messages = [];
+                renderMessages();
+            }
+        }
+    }
+    contactContextMenu.style.display = "none";
+}
 
-    for (let index = 0; index < text.length; index += 1) {
-        const character = text[index];
-        const next = text[index + 1];
-        if (character === '"' && quoted && next === '"') {
-            value += '"';
-            index += 1;
-        } else if (character === '"') {
-            quoted = !quoted;
-        } else if (character === ',' && !quoted) {
-            row.push(value.trim());
-            value = '';
-        } else if ((character === '\n' || character === '\r') && !quoted) {
-            if (character === '\r' && next === '\n') index += 1;
-            row.push(value.trim());
-            rows.push(row);
-            row = [];
-            value = '';
+// Setup add contact button functionality
+function setupAddContactButton() {
+    const addContactBtn = document.getElementById('addContactBtn');
+    const addContactModal = document.getElementById('addContactModal');
+    const cancelAddContact = document.getElementById('cancelAddContact');
+    const addContactForm = document.getElementById('addContactForm');
+    
+    if (addContactBtn) {
+        addContactBtn.addEventListener('click', function() {
+            addContactModal.style.display = 'block';
+        });
+    }
+    
+    if (cancelAddContact) {
+        cancelAddContact.addEventListener('click', function() {
+            addContactModal.style.display = 'none';
+        });
+    }
+    
+    if (addContactForm) {
+        addContactForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const email = document.getElementById('contactEmail').value;
+            addNewContact(email);
+        });
+    }
+    
+    // Close modal when clicking outside
+    window.addEventListener('click', function(event) {
+        if (event.target === addContactModal) {
+            addContactModal.style.display = 'none';
+        }
+    });
+}
+
+// Add new contact functionality
+async function addNewContact(email) {
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        alert('Please enter a valid email address');
+        return;
+    }
+    
+    // Check if email exists in accounts list
+    const allUsers = await getAllUsers();
+    let foundUser = null;
+    
+    for (const username in allUsers) {
+        // Skip ABC people and current user
+        if (username.toLowerCase().includes('abc') || username === currentUser.username) {
+            continue;
+        }
+        
+        if (allUsers[username].email === email) {
+            foundUser = allUsers[username];
+            break;
+        }
+    }
+    
+    if (foundUser) {
+        // User exists, add as contact if not already added
+        const existingContact = contacts.find(contact => contact.id === foundUser.accountId);
+        if (existingContact) {
+            alert('This contact is already in your list');
         } else {
-            value += character;
+            // Add user as contact
+            contacts.push({
+                id: foundUser.accountId,
+                name: foundUser.username,
+                email: foundUser.email,
+                lastMessage: "No messages yet",
+                timestamp: Date.now()
+            });
+            saveContacts();
+            renderContacts();
+            alert('Contact added successfully!');
+        }
+    } else {
+        // User doesn't exist, save as local contact
+        const existingContact = contacts.find(contact => contact.email === email);
+        if (existingContact) {
+            alert('This contact is already in your list');
+        } else {
+            contacts.push({
+                id: 'local_' + Date.now(),
+                name: email.split('@')[0], // Use part before @ as name
+                email: email,
+                lastMessage: "No messages yet",
+                timestamp: Date.now()
+            });
+            saveContacts();
+            renderContacts();
+            alert('Contact saved locally!');
         }
     }
-    if (value.length > 0 || row.length > 0) {
-        row.push(value.trim());
-        rows.push(row);
-    }
-    return rows;
-}
-
-function inferFieldType(key, values) {
-    const meaningfulValues = values.filter((value) => value !== '' && value !== null && value !== undefined);
-    if (meaningfulValues.length > 0 && meaningfulValues.every((value) => typeof value === 'boolean' || ['true', 'false'].includes(String(value).toLowerCase()))) return 'boolean';
-    if (meaningfulValues.length > 0 && meaningfulValues.every((value) => /^-?\d+(\.\d+)?$/.test(String(value)))) return 'number';
-    if (meaningfulValues.length > 0 && meaningfulValues.every((value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value)))) return 'date';
-    if (meaningfulValues.length > 0 && meaningfulValues.every((value) => /^https?:\/\//.test(String(value)))) return 'url';
-    if (key.toLowerCase().includes('status')) return 'status';
-    return 'text';
-}
-
-function coerceImportedValue(value, field) {
-    if (!field) return value;
-    if (field.type === 'boolean') return value === true || String(value).toLowerCase() === 'true' || String(value) === '1';
-    if (field.type === 'number' && value !== '') return Number(value);
-    return value;
-}
-
-function copyCollectionJson() {
-    const collection = getActiveCollection();
-    copyText(JSON.stringify(collection.records, null, 2)).then(() => showToast('JSON copied to clipboard.')).catch(() => showToast('Could not copy JSON.', 'error'));
-}
-
-function exportCollection() {
-    const collection = getActiveCollection();
-    const fileName = `${slugify(getActiveBase().name)}-${slugify(collection.name)}.json`;
-    const blob = new Blob([JSON.stringify(collection.records, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = fileName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    emitIntegrationHook('onRecordsExported', { collection, records: collection.records, fileName });
-    showToast(`Exported ${fileName}.`);
-}
-
-function copyText(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
-    return new Promise((resolve, reject) => {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('copy');
-            resolve();
-        } catch (error) {
-            reject(error);
-        } finally {
-            textarea.remove();
-        }
-    });
-}
-
-function openModal(id) {
-    const modal = $(id);
-    modal.hidden = false;
-    document.body.classList.add('modal-open');
-}
-
-function closeModal(id) {
-    const modal = $(id);
-    if (!modal) return;
-    modal.hidden = true;
-    if (!document.querySelector('.modal:not([hidden])')) document.body.classList.remove('modal-open');
-}
-
-function showToast(message, type = 'success') {
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.innerHTML = `<span class="toast-mark" aria-hidden="true">${type === 'error' ? '!' : '✓'}</span><span>${escapeHtml(message)}</span>`;
-    $('toastContainer').appendChild(toast);
-    window.setTimeout(() => {
-        toast.classList.add('is-leaving');
-        window.setTimeout(() => toast.remove(), 220);
-    }, 2800);
-}
-
-function formatCell(value, field) {
-    if (value === null || value === undefined || value === '') return '<span class="cell-empty">—</span>';
-    if (field.type === 'status') {
-        const status = String(value).toLowerCase().replace(/[^a-z0-9-]/g, '-');
-        return `<span class="status-pill status-${escapeAttribute(status)}"><span class="status-pill-dot"></span>${escapeHtml(labelFromKey(String(value)))}</span>`;
-    }
-    if (field.type === 'boolean') return `<span class="boolean-cell ${value ? 'is-true' : 'is-false'}"><span>${value ? '✓' : '–'}</span>${value ? 'True' : 'False'}</span>`;
-    if (field.type === 'url') {
-        const safeUrl = /^https?:\/\//i.test(String(value)) ? String(value) : '';
-        return safeUrl ? `<a class="cell-link" href="${escapeAttribute(safeUrl)}" target="_blank" rel="noreferrer">${escapeHtml(shortenUrl(safeUrl))}</a>` : escapeHtml(String(value));
-    }
-    return escapeHtml(String(value));
-}
-
-function fieldTypeMark(type) {
-    return { text: 'T', number: '#', date: 'D', boolean: '✓', url: '↗', status: '●' }[type] || 'T';
-}
-
-function getDefaultValue(field) {
-    if (field.key === 'id') return createId('rec');
-    if (field.type === 'boolean') return false;
-    if (field.type === 'status') return 'draft';
-    if (field.type === 'date') return new Date().toISOString().slice(0, 10);
-    return '';
-}
-
-function fieldKey(value) {
-    return String(value || '')
-        .trim()
-        .replace(/([a-z])([A-Z])/g, '$1_$2')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '')
-        .slice(0,  fortyEight());
-}
-
-function fortyEight() {
-    return 48;
-}
-
-function uniqueFieldKey(key, fields) {
-    const cleanKey = key || 'field';
-    const existing = new Set(fields.map((field) => field.key));
-    if (!existing.has(cleanKey)) return cleanKey;
-    let suffix = 2;
-    while (existing.has(`${cleanKey}_${suffix}`)) suffix += 1;
-    return `${cleanKey}_${suffix}`;
-}
-
-function labelFromKey(key) {
-    return String(key || 'Field')
-        .replace(/[_-]+/g, ' ')
-        .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function slugify(value) {
-    return String(value || 'workspace').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'workspace';
-}
-
-function shortenUrl(value) {
-    try {
-        const url = new URL(value);
-        return `${url.hostname}${url.pathname === '/' ? '' : url.pathname}`.slice(0, 32);
-    } catch (error) {
-        return String(value).slice(0, 32);
-    }
-}
-
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
-
-function escapeAttribute(value) {
-    return escapeHtml(value);
+    
+    // Close modal and clear form
+    document.getElementById('addContactModal').style.display = 'none';
+    document.getElementById('contactEmail').value = '';
 }

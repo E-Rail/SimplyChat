@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimplyChat - Authenticating...</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-form">
+            <h2>Signing in...</h2>
+            <p>Please wait while we complete your authentication.</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script src="crypto.js"></script>
+    <script src="cloudService.js"></script>
+    <script>
+        (async function() {
+            try {
+                const supabase = initSupabase();
+                if (!supabase) {
+                    throw new Error('Failed to initialize Supabase');
+                }
+
+                // Parse the hash fragment for auth tokens
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                const accessToken = hashParams.get('access_token');
+                const error = hashParams.get('error');
+                const errorDescription = hashParams.get('error_description');
+
+                if (error) {
+                    throw new Error(errorDescription || error);
+                }
+
+                if (!accessToken) {
+                    // Try to get existing session
+                    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                    if (sessionError || !session) {
+                        throw new Error('No authentication session found');
+                    }
+                    await handleAuthSession(session, supabase);
+                } else {
+                    // Get session from the access token
+                    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                    if (sessionError || !session) {
+                        throw new Error('Failed to get session from token');
+                    }
+                    await handleAuthSession(session, supabase);
+                }
+            } catch (err) {
+                console.error('OAuth callback error:', err);
+                alert('Authentication failed: ' + err.message);
+                window.location.href = 'login.html';
+            }
+        })();
+
+        async function handleAuthSession(session, supabase) {
+            const user = session.user;
+            const username = user.user_metadata?.full_name || user.user_metadata?.name || user.email.split('@')[0];
+            const email = user.email;
+
+            // Check if user exists in our users table
+            const cloudService = new CloudService();
+            const { data: existingUser } = await supabase
+                .from('users')
+                .select('*')
+                .eq('email', email)
+                .single();
+
+            let userData;
+            if (existingUser) {
+                // User exists, use their data
+                userData = {
+                    username: existingUser.username,
+                    email: existingUser.email,
+                    accountId: existingUser.id
+                };
+            } else {
+                // Create new user in our users table
+                const { data: newUser, error: insertError } = await supabase
+                    .from('users')
+                    .insert([{
+                        username: username,
+                        email: email,
+                        password: 'oauth_' + crypto.randomUUID() // Placeholder, not used for OAuth users
+                    }])
+                    .select()
+                    .single();
+
+                if (insertError) {
+                    throw new Error('Failed to create user account: ' + insertError.message);
+                }
+
+                userData = {
+                    username: newUser.username,
+                    email: newUser.email,
+                    accountId: newUser.id
+                };
+            }
+
+            // Store user info in localStorage
+            localStorage.setItem('currentAccount', JSON.stringify(userData));
+            localStorage.setItem('currentUser', username);
+
+            // Generate E2E encryption keys if not exists
+            if (!E2E.hasKeys()) {
+                await E2E.initializeKeys(userData.accountId, cloudService);
+            }
+
+            // Redirect to main app
+            window.location.href = 'index.html';
+        }
+    </script>
+</body>
+</html>

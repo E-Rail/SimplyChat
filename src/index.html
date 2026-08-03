@@ -3,281 +3,76 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#123b32">
-    <title>Basefill</title>
+    <title>SimplyChat</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Include Supabase CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.7.0/dist/umd/supabase.min.js"></script>
+    <script src="config.js"></script>
+    <script>
+        // Check if user is logged in before loading the page
+        if (!localStorage.getItem('currentUser') || !localStorage.getItem('currentAccount')) {
+            // Redirect to login page if not authenticated
+            window.location.href = 'login.html';
+        }
+    </script>
 </head>
 <body>
-    <div class="app-shell">
-        <aside class="sidebar" aria-label="Bases">
-            <div class="brand-lockup">
-                <div class="brand-mark" aria-hidden="true">B</div>
-                <div>
-                    <div class="brand-name">BASEFILL</div>
-                    <div class="brand-subtitle">your data workspace</div>
-                </div>
+    <div class="chat-container">
+        <!-- Contacts Sidebar -->
+        <div class="contacts-sidebar">
+            <div class="contacts-header">
+                <h2>Contacts</h2>
             </div>
-
-            <button id="newBaseBtn" class="new-base-btn" type="button">
-                <span class="button-plus" aria-hidden="true">+</span>
-                New base
-            </button>
-
-            <div class="sidebar-section-heading">
-                <span>Your bases</span>
-                <button id="quickNewBaseBtn" class="icon-button sidebar-icon-button" type="button" aria-label="Create a new base">+</button>
+            <div id="contactsList" class="contacts-list">
+                <!-- Contacts will be populated here -->
             </div>
-            <div id="basesList" class="bases-list"></div>
-
-            <div class="sidebar-footer">
-                <div class="local-indicator">
-                    <span class="status-dot" aria-hidden="true"></span>
-                    <span id="storageStatus">Saved locally</span>
-                </div>
-                <p>Use demo data now, then connect the backend your product needs.</p>
-            </div>
-        </aside>
-
-        <main class="main-shell">
-            <header class="topbar">
-                <div class="breadcrumbs" aria-label="Current location">
-                    <span id="activeBaseName">Product API</span>
-                    <span class="breadcrumb-divider" aria-hidden="true">/</span>
-                    <strong id="activeCollectionName">Users</strong>
-                </div>
-                <div class="topbar-actions">
-                    <label class="search-field" for="recordSearch">
-                        <span class="search-icon" aria-hidden="true"></span>
-                        <input id="recordSearch" type="search" placeholder="Search records" autocomplete="off">
-                        <kbd>/</kbd>
-                    </label>
-                    <span id="apiStatusBadge" class="workspace-badge"><span class="workspace-dot" aria-hidden="true"></span>Demo mode</span>
-                    <button id="apiSettingsBtn" class="secondary-action" type="button">Connect</button>
-                    <button id="importBtn" class="secondary-action" type="button">Import</button>
-                    <button id="exportBtn" class="secondary-action" type="button">Export</button>
-                </div>
-            </header>
-
-            <div class="content-grid">
-                <section class="collection-rail" aria-label="Collections">
-                    <div class="base-summary">
-                        <div class="eyebrow">ACTIVE BASE</div>
-                        <h1 id="baseTitle">Product API</h1>
-                        <p id="baseDescription">A compact seed workspace for your product data.</p>
-                        <button id="deleteBaseBtn" class="text-danger" type="button">Delete base</button>
-                    </div>
-
-                    <div class="rail-heading">
-                        <span>Collections</span>
-                        <button id="newCollectionBtn" class="icon-button" type="button" aria-label="Create a new collection">+</button>
-                    </div>
-                    <div id="collectionsList" class="collections-list"></div>
-
-                    <div class="rail-tip">
-                        <div class="tip-icon" aria-hidden="true">↗</div>
-                        <div>
-                            <strong>Seed with confidence</strong>
-                            <p>Import JSON or CSV, then shape a clean payload for your product.</p>
-                        </div>
-                    </div>
-                </section>
-
-                <section class="workspace-panel" aria-label="Records">
-                    <div class="workspace-heading">
-                        <div>
-                            <div class="eyebrow">COLLECTION <span id="collectionSlug">/users</span></div>
-                            <h2 id="collectionTitle">Users</h2>
-                            <p id="collectionDescription">Your first collection is ready for seed data.</p>
-                        </div>
-                        <div class="workspace-heading-actions">
-                            <button id="copyJsonBtn" class="secondary-action" type="button">Copy JSON</button>
-                            <button id="deleteCollectionBtn" class="toolbar-link delete-collection-link" type="button" aria-label="Delete collection">Delete</button>
-                            <button id="addRecordBtn" class="primary-action" type="button"><span aria-hidden="true">+</span> Add record</button>
-                        </div>
-                    </div>
-
-                    <div class="records-toolbar">
-                        <div class="toolbar-summary">
-                            <span id="recordCount">0 records</span>
-                            <span id="selectionSummary" class="selection-summary" hidden></span>
-                        </div>
-                        <div class="toolbar-actions">
-                            <button id="deleteSelectedBtn" class="toolbar-danger" type="button" hidden>Delete selected</button>
-                            <button id="clearSelectionBtn" class="toolbar-link" type="button" hidden>Clear</button>
-                        </div>
-                    </div>
-
-                    <div id="tableWrap" class="table-wrap"></div>
-                    <div id="emptyState" class="empty-state" hidden>
-                        <div class="empty-state-icon" aria-hidden="true">+</div>
-                        <h3>No records yet</h3>
-                        <p>Add your first record or import a JSON/CSV seed file to get started.</p>
-                        <div class="empty-state-actions">
-                            <button id="emptyAddRecordBtn" class="primary-action" type="button">Add record</button>
-                            <button id="emptyImportBtn" class="secondary-action" type="button">Import data</button>
-                        </div>
-                    </div>
-                </section>
-
-                <aside class="inspector-panel" aria-label="Collection schema">
-                    <div class="inspector-heading">
-                        <div>
-                            <div class="eyebrow">SCHEMA</div>
-                            <h2>Fields</h2>
-                            <p id="fieldCount">0 fields</p>
-                        </div>
-                        <button id="addFieldBtn" class="icon-button" type="button" aria-label="Add a field">+</button>
-                    </div>
-                    <div id="fieldsList" class="fields-list"></div>
-                    <div class="inspector-note">
-                        <span class="note-mark" aria-hidden="true">i</span>
-                        <p>Fields define the shape of every record. New import columns are added automatically.</p>
-                    </div>
-                </aside>
-            </div>
-        </main>
-    </div>
-
-    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
-
-    <div id="entityModal" class="modal" hidden>
-        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="entityModalTitle">
-            <div class="modal-header">
-                <div>
-                    <div class="eyebrow" id="entityModalEyebrow">NEW BASE</div>
-                    <h2 id="entityModalTitle">Create a base</h2>
-                </div>
-                <button class="modal-close" type="button" data-close-modal="entityModal" aria-label="Close">×</button>
-            </div>
-            <p id="entityModalCopy" class="modal-copy">Keep related seed data together in one place.</p>
-            <form id="entityForm" class="modal-form">
-                <div class="form-field">
-                    <label for="entityName">Name</label>
-                    <input id="entityName" name="name" type="text" required maxlength="48" placeholder="e.g. Product API">
-                </div>
-                <div class="form-field" id="entityDescriptionField">
-                    <label for="entityDescription">Description <span>Optional</span></label>
-                    <textarea id="entityDescription" name="description" rows="3" maxlength="140" placeholder="What will this base help you seed?"></textarea>
-                </div>
-                <div class="modal-actions">
-                    <button class="secondary-action" type="button" data-close-modal="entityModal">Cancel</button>
-                    <button class="primary-action" type="submit" id="entitySubmitBtn">Create base</button>
-                </div>
-            </form>
         </div>
-    </div>
-
-    <div id="fieldModal" class="modal" hidden>
-        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="fieldModalTitle">
-            <div class="modal-header">
-                <div>
-                    <div class="eyebrow">COLLECTION SCHEMA</div>
-                    <h2 id="fieldModalTitle">Add a field</h2>
+        
+        <!-- Main Chat Area -->
+        <div class="chat-area">
+            <div class="chat-header">
+                <h2>SimplyChat</h2>
+                <div class="user-info">
+                    <span id="currentUser">User</span>
+                    <a href="settings.html" style="color: #333; margin-left: 10px; text-decoration: none; font-size: 18px;">⚙️</a>
                 </div>
-                <button class="modal-close" type="button" data-close-modal="fieldModal" aria-label="Close">×</button>
             </div>
-            <p class="modal-copy">Add a column to the current collection.</p>
-            <form id="fieldForm" class="modal-form">
-                <div class="form-field">
-                    <label for="fieldLabel">Field name</label>
-                    <input id="fieldLabel" name="label" type="text" required maxlength="40" placeholder="e.g. Launch date">
-                </div>
-                <div class="form-field">
-                    <label for="fieldType">Type</label>
-                    <select id="fieldType" name="type">
-                        <option value="text">Text</option>
-                        <option value="number">Number</option>
-                        <option value="date">Date</option>
-                        <option value="boolean">Boolean</option>
-                        <option value="url">URL</option>
-                        <option value="status">Status</option>
-                    </select>
-                </div>
-                <label class="checkbox-field" for="fieldRequired">
-                    <input id="fieldRequired" name="required" type="checkbox">
-                    <span><strong>Required field</strong><small>Records cannot be saved without a value.</small></span>
-                </label>
-                <div class="modal-actions">
-                    <button class="secondary-action" type="button" data-close-modal="fieldModal">Cancel</button>
-                    <button class="primary-action" type="submit">Add field</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div id="recordModal" class="modal" hidden>
-        <div class="modal-card record-modal-card" role="dialog" aria-modal="true" aria-labelledby="recordModalTitle">
-            <div class="modal-header">
-                <div>
-                    <div class="eyebrow" id="recordModalEyebrow">NEW RECORD</div>
-                    <h2 id="recordModalTitle">Add a record</h2>
-                </div>
-                <button class="modal-close" type="button" data-close-modal="recordModal" aria-label="Close">×</button>
-            </div>
-            <p class="modal-copy">Fill in the fields for this collection. You can edit it again later.</p>
-            <form id="recordForm" class="modal-form"></form>
-        </div>
-    </div>
-
-    <div id="importModal" class="modal" hidden>
-        <div class="modal-card import-modal-card" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
-            <div class="modal-header">
-                <div>
-                    <div class="eyebrow">BULK SEED</div>
-                    <h2 id="importModalTitle">Import records</h2>
-                </div>
-                <button class="modal-close" type="button" data-close-modal="importModal" aria-label="Close">×</button>
-            </div>
-            <p class="modal-copy">Paste an array of JSON objects or CSV with a header row. New columns become fields.</p>
-            <div class="import-file-row">
-                <label class="file-picker" for="importFile">Choose a file</label>
-                <input id="importFile" type="file" accept=".json,.csv,application/json,text/csv">
-                <span id="importFileName">No file selected</span>
-            </div>
-            <textarea id="importInput" class="import-input" rows="11" spellcheck="false" placeholder='[
-  { "id": "usr_003", "name": "Jordan Lee", "role": "editor" }
-]'></textarea>
-            <div class="import-hint"><span class="note-mark" aria-hidden="true">i</span> JSON accepts an array of objects. CSV uses the first row as field names.</div>
-            <div class="modal-actions">
-                <button class="secondary-action" type="button" data-close-modal="importModal">Cancel</button>
-                <button id="confirmImportBtn" class="primary-action" type="button">Import records</button>
+            
+            <div id="messages" class="messages"></div>
+            
+            <div class="input-area">
+                <button class="voice-btn">🎤</button>
+                <input id="messageInput" type="text" placeholder="Type a message...">
+                <button id="sendBtn">Send</button>
             </div>
         </div>
     </div>
-
-    <div id="integrationModal" class="modal" hidden>
-        <div class="modal-card integration-modal-card" role="dialog" aria-modal="true" aria-labelledby="integrationModalTitle">
-            <div class="modal-header">
-                <div>
-                    <div class="eyebrow">CORE INTEGRATION</div>
-                    <h2 id="integrationModalTitle">Connect your backend</h2>
-                </div>
-                <button class="modal-close" type="button" data-close-modal="integrationModal" aria-label="Close">×</button>
-            </div>
-            <p class="modal-copy">Basefill is ready to run as a local-first app. Fork it, then connect these hooks to your auth, API, and persistence layer.</p>
-            <div class="integration-status-card">
-                <span class="integration-status-dot" aria-hidden="true"></span>
-                <div>
-                    <strong id="integrationStatusTitle">Running in demo mode</strong>
-                    <p id="integrationStatusCopy">Records are saved in this browser until your adapter is connected.</p>
-                </div>
-            </div>
-            <div class="integration-points">
-                <div><code>loadWorkspace()</code><span>Hydrate a signed-in user’s data.</span></div>
-                <div><code>saveWorkspace(workspace)</code><span>Persist changes to your API.</span></div>
-                <div><code>hooks.onRecordCreated</code><span>Attach product-specific side effects.</span></div>
-            </div>
-            <pre class="integration-snippet"><code>window.BasefillAPI.hooks.loadWorkspace = async () =&gt; {
-  return fetch('/api/workspace').then(response =&gt; response.json());
-};</code></pre>
-            <div class="modal-actions">
-                <button class="secondary-action" type="button" data-close-modal="integrationModal">Close</button>
-                <button id="copyIntegrationBtn" class="primary-action" type="button">Copy starter hook</button>
+    
+    <!-- Plus Button -->
+    <button id="addContactBtn" class="floating-btn">+</button>
+    
+    <!-- Add Contact Modal -->
+    <div id="addContactModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="auth-form">
+                <h2>Add Contact</h2>
+                <p>Enter the email of the person you want to chat with</p>
+                <form id="addContactForm">
+                    <div class="form-group">
+                        <label for="contactEmail">Email Address</label>
+                        <input type="email" id="contactEmail" required>
+                    </div>
+                    <button type="submit" class="auth-btn">Add Contact</button>
+                    <button type="button" id="cancelAddContact" class="secondary-btn" style="margin-top: 10px;">Cancel</button>
+                </form>
             </div>
         </div>
     </div>
-
-    <script src="api.js"></script>
+    
+    <!-- Authentication Scripts -->
+    <script src="crypto.js"></script>
+    <script src="auth.js"></script>
+    <script src="cloudService.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

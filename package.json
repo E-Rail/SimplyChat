@@ -1,6 +1,6 @@
 {
   "name": "simplychat",
-  "version": "26.1.0",
+  "version": "26.2.0-core",
   "description": "A simple, encrypted chat application",
   "main": "main.js",
   "scripts": {

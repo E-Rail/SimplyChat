@@ -2,6 +2,10 @@
 
 A simple, encrypted chat application built with Electron and Supabase.
 
+## Maintenance model
+
+Starting with `26.2.0-core`, this repository is a forkable core rather than a normally maintained consumer-facing app. Developers are expected to own their fork's product experience, backend configuration, security review, and release cadence. Upstream changes are limited to core fixes and starter infrastructure as needed.
+
 ## Features
 
 - **End-to-End Encryption** — Messages encrypted using RSA-OAEP + AES-GCM
@@ -15,8 +19,8 @@ A simple, encrypted chat application built with Electron and Supabase.
 
 Download the latest release from the [Releases page](https://github.com/E-Rail/SimplyChat-JS-Edition/releases/latest):
 
-- **macOS** — `SimplyChat-26.1.0-universal.dmg` (Intel & Apple Silicon)
-- **Windows** — `SimplyChat Setup 26.1.0.exe` (x64)
+- **macOS** — `SimplyChat-26.2.0-core-universal.dmg` (Intel & Apple Silicon)
+- **Windows** — `SimplyChat Setup 26.2.0-core.exe` (x64)
 
 > **macOS users:** If you get "SimplyChat is damaged", run this in Terminal after installing:
 > ```

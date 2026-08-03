@@ -57,14 +57,15 @@ npm install
 2. (Optional) Set up **Google** and **GitHub** OAuth providers
 3. Go to **Authentication → URL Configuration** and add `simplychat://auth-callback` to Redirect URLs
 
-### 4. Update Config
+### 4. Configure the fork
 
-Edit `src/config.js` with your Supabase credentials:
+Run the app once with `npm start`. SimplyChat opens the Developer Setup screen when no project is configured. Fill in:
 
-```js
-const SUPABASE_URL = 'https://your-project.supabase.co';
-const SUPABASE_ANON_KEY = 'your-anon-key';
-```
+- **Supabase project URL** — for example, `https://your-project.supabase.co`
+- **Supabase anon key** — from Supabase → Project Settings → API
+- **Optional API base URL** — for any fork-specific services you want to call from the app
+
+The values are stored in the app's local storage for that installation. The public anon key is intended for client-side use; never enter a `service_role` key. Forks that prefer file-based configuration can fill the `DEFAULT_APP_CONFIG` values in `src/config.js` instead.
 
 ### 5. Run
 
@@ -98,8 +99,10 @@ SimplyChat-JS-Edition/
 │   ├── login.html       # Login page
 │   ├── register.html    # Registration page
 │   ├── settings.html    # User settings page
+│   ├── setup.html       # First-run developer credential setup
+│   ├── setup.js         # Setup form and local config persistence
 │   ├── auth-callback.html # OAuth callback handler
-│   ├── config.js        # App configuration
+│   ├── config.js        # Credential loader and integration placeholders
 │   ├── auth.js          # Authentication logic
 │   ├── cloudService.js  # Supabase service layer
 │   ├── crypto.js        # E2E encryption utilities

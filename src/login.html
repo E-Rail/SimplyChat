@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SimplyChat - Login</title>
     <link rel="stylesheet" href="style.css">
+    <script src="config.js"></script>
+    <script>
+        if (!window.SimplyChatConfig.isConfigured()) window.location.replace('setup.html');
+    </script>
 </head>
 <body>
     <div class="auth-container">
@@ -46,12 +50,11 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="config.js"></script>
     <script src="crypto.js"></script>
     <script src="cloudService.js"></script>
     <script>
         const supabaseClient = initSupabase();
-        const REDIRECT_URL = 'simplychat://auth-callback';
+        const REDIRECT_URL = window.SimplyChatConfig.get().redirectUrl;
 
         // Helper: process tokens from OAuth callback
         async function processOAuthTokens(url) {

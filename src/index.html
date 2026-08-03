@@ -5,16 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SimplyChat</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Include Supabase CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.7.0/dist/umd/supabase.min.js"></script>
     <script src="config.js"></script>
     <script>
-        // Check if user is logged in before loading the page
-        if (!localStorage.getItem('currentUser') || !localStorage.getItem('currentAccount')) {
-            // Redirect to login page if not authenticated
-            window.location.href = 'login.html';
+        // Developers configure the fork once before the chat app starts.
+        if (!window.SimplyChatConfig.isConfigured()) {
+            window.location.replace('setup.html');
+        } else if (!localStorage.getItem('currentUser') || !localStorage.getItem('currentAccount')) {
+            window.location.replace('login.html');
         }
     </script>
+    <!-- Include Supabase CDN after the local config guard. -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.7.0/dist/umd/supabase.min.js"></script>
 </head>
 <body>
     <div class="chat-container">

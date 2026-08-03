@@ -7,6 +7,10 @@ async function initCloudService() {
         return cloudServiceInstance;
     }
 
+    if (window.SimplyChatConfig && !window.SimplyChatConfig.isConfigured()) {
+        return null;
+    }
+
     await waitForSupabase();
 
     if (window.CloudService) {
@@ -166,6 +170,13 @@ function saveUserSession(authUser, username) {
 
 // Check authentication status
 async function checkAuth() {
+    if (window.SimplyChatConfig && !window.SimplyChatConfig.isConfigured()) {
+        if (!window.location.pathname.includes('setup.html')) {
+            window.location.href = 'setup.html';
+        }
+        return false;
+    }
+
     await initCloudService();
     const currentUser = localStorage.getItem('currentUser');
     const currentAccount = localStorage.getItem('currentAccount');
@@ -174,7 +185,8 @@ async function checkAuth() {
         if (window.location.pathname.includes('index.html')) return false;
         if (!window.location.pathname.includes('login.html') &&
             !window.location.pathname.includes('register.html') &&
-            !window.location.pathname.includes('auth-callback.html')) {
+            !window.location.pathname.includes('auth-callback.html') &&
+            !window.location.pathname.includes('setup.html')) {
             window.location.href = 'login.html';
             return false;
         }

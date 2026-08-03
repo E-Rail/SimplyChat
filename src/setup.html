@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimplyChat - Developer Setup</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="setup-container">
+        <div class="setup-brand">
+            <span class="setup-brand-mark">S</span>
+            <span>SimplyChat <small>CORE</small></span>
+        </div>
+        <div class="auth-form setup-form">
+            <div class="setup-kicker">DEVELOPER SETUP</div>
+            <h2>Connect your project</h2>
+            <p>Fill in the credentials for the Supabase project this fork should use. The chat UI and auth flow are ready to run after this step.</p>
+
+            <div class="setup-note">
+                <span class="setup-note-icon">i</span>
+                <span>Use a public <strong>anon</strong> key only. Never enter a Supabase <strong>service_role</strong> key here.</span>
+            </div>
+
+            <form id="setupForm">
+                <div class="form-group">
+                    <label for="supabaseUrl">Supabase project URL</label>
+                    <input type="url" id="supabaseUrl" placeholder="https://your-project.supabase.co" autocomplete="url" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="supabaseAnonKey">Supabase anon key</label>
+                    <input type="password" id="supabaseAnonKey" placeholder="eyJ..." autocomplete="off" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="apiBaseUrl">Optional API base URL <span>(for fork-specific services)</span></label>
+                    <input type="url" id="apiBaseUrl" placeholder="https://api.example.com" autocomplete="url">
+                </div>
+
+                <button type="submit" class="auth-btn">Save and open SimplyChat</button>
+            </form>
+
+            <button id="clearConfigBtn" class="setup-reset-btn" type="button">Clear saved credentials</button>
+            <p id="setupStatus" class="setup-status" role="status"></p>
+        </div>
+        <p class="setup-footer">Configure once per fork. Values are stored in this app's local storage.</p>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="setup.js"></script>
+</body>
+</html>
